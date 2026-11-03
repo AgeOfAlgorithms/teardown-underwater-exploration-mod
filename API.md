@@ -31,7 +31,8 @@ To go back to the default, `ClearKey(key)` (with the sync on every machine: clea
 | `dive.air.time.<player>` | float, s | - | that player's tank only (a class, a perk); beats the diver gear they wear. `ClearKey` to go back |
 | `dive.give.harpoon.<player>` | int, spears | - | gives that player the Harpoon gun with that many spears (or fills theirs); 0 takes it away. Dive clears the key |
 | `dive.guns` | bool | false | true: the game's guns (pistol, shotgun, rifle, rocket launcher) work under water; false: they leave the wheel while the head is under and come back at the surface |
-| `dive.give.gear.<player>` | float, s | - | gives that player Diver gear of that length (into their tool wheel, held, not yet worn); 0 takes theirs away. Dive clears the key |
+| `dive.gear.start` | float, s | 180 | the diver gear everyone has in the wheel from the start and after a respawn; 0 = only from pickups |
+| `dive.give.gear.<player>` | float, s | - | gives that player Diver gear whose tank holds that many seconds of air (into their tool wheel, held, not yet worn); 0 takes theirs away. Dive clears the key |
 | `dive.gear.swim.speed` | float, x | 1.5 | swimming speed with the gear worn, diving and at the surface; 1 = no boost |
 | `dive.gear.land.speed` | float, x | 0.6 | walking speed with the gear worn out of the water (x the game's); jumps are cut half as much; 1 = no penalty |
 | `dive.swim.speed` | float, m/s | 3 | diving swim speed |
@@ -43,7 +44,9 @@ has been under water for about 10 s; while their tank has air, Dive undoes it.
 
 ## Diver gear
 
-Players only get diver gear (an air tank and flippers) from a pickup. Any object tagged `divergear=<seconds>` is one:
+Every player has **Diver gear** (an air tank and flippers) in their tool wheel from the start and after every respawn,
+not worn: `dive.gear.start` seconds (180; 0 = none: a map that wants it found sets 0). More (or bigger tanks) come
+from pickups: any object tagged `divergear=<seconds>` is one:
 looking at it from up to about 2.5 m, players see "E: pick up Diver gear, 4 min", on land and under water (Dive's own
 prompt: the game offers no interact to a swimming player). Taking it puts a **Diver gear** tool in their wheel, in
 their hands. Holding it, the left mouse button puts it on or takes it off; it stays on whatever they hold. Worn:
@@ -54,7 +57,7 @@ their hands. Holding it, the left mouse button puts it on or takes it off; it st
 
 Everyone sees the tank on the diver's back and the flippers on their feet.
 
-The gear stays with the player: there is no dropping, not even on death. A newer pickup replaces it (its length). If
+The gear stays with the player: there is no dropping, not even on death. A newer pickup replaces it (its tank's air time). If
 another script takes the tool away (the game's multiplayer modes take every tool on death), the gear goes with it.
 
 The object can be anything: put the tag on a `<vox>` or a `<body>` in your map
@@ -76,8 +79,8 @@ Abyssipede (the Bobbit Worm mod's `abyssipede.hitpoints` / `abyssipede.damage`).
 
 - **Spear racks**: anything tagged `spearrack`. E with spears missing fills the gun; the rack is then tagged `spent`
   for 20 s.
-- **Air stations**: anything tagged `airfill=<seconds>`. E fills the tank; the station is tagged `spent` for that many
-  seconds ("Air station: empty for now").
+- **Air stations**: anything tagged `airfill=<seconds>`. E fills the tank and the blowtorch's fuel (to 30: a cutting
+  torch needs oxygen); the station is tagged `spent` for that many seconds ("Air station: empty for now").
 
 Both work under water (Dive's own aim and prompt, as for the gear).
 
@@ -108,7 +111,7 @@ A map that wants murkier or clearer water at runtime can spawn a replacement `<w
 | `dive.diving.<player>` | bool | the player is diving |
 | `dive.air.<player>` | float, 0..1 | air left in the tank |
 | `dive.air.tank.<player>` | float, s | how long that player's full tank lasts (seconds of air left = this x `dive.air.<player>`) |
-| `dive.gear.<player>` | float, s | the length of the diver gear they carry; 0 = none |
+| `dive.gear.<player>` | float, s | the air time of the diver gear they carry (its tank, s); 0 = none |
 | `dive.gear.worn.<player>` | bool | they wear it |
 
 ## Map tags

@@ -27,7 +27,9 @@ AIR_TIME = 45       -- seconds of air in a full tank
 GEAR_REACH = 3.5    -- metres from the eye to diver gear you can take (a swimmer's eye is the upright capsule's: the
                     -- swim pose draws the head ~1.6 m further on, verified in-game 2026-11-03)
 GEAR_TOOL = "divergear"
-GUNS = {"gun", "shotgun", "rifle", "rocket"}   -- the game's firearms: stowed under water (stowGuns)
+GUNS = {"gun", "shotgun", "rifle", "rocket"}
+TORCH_FUEL = 30     -- the blowtorch's fuel when diving lends it empty, and what an air station fills it to   -- the game's firearms: stowed under water (stowGuns)
+GEAR_START = 180    -- seconds of the diver gear everyone has in the wheel (dive.gear.start; 0 = only from pickups)
 GEAR_LAND_SPEED = 0.6  -- worn, out of the water: walking speed (x the game's); jumps: halfway to it
 GEAR_SWIM_SPEED = 1.5  -- worn, in the water: swimming speed, diving and at the surface (x)
 FIN_AHEAD = 0.12    -- metres a flipper's centre lies past the toes, ...
@@ -78,7 +80,7 @@ function Dive.serverInit()
 	wearSound = LoadSound("clickup.ogg")
 	hissSound = LoadSound("MOD/snd/breath1.ogg")
 	airReady = {}                                      -- air station body -> the time it is back in service
-	RegisterTool(GEAR_TOOL, "Diver gear", "MOD/vox/airtank_tool.vox")
+	RegisterTool(GEAR_TOOL, "Diver gear", "MOD/prefab/divergear_tool.xml")
 end
 
 -- seconds of air in this player's full tank: a script's dive.air.time.<player>, else the diver gear they wear, else
@@ -90,7 +92,8 @@ function tankTime(p, d)
 	return setting("dive.air.time", AIR_TIME)
 end
 
--- Diving: the blowtorch instead of the sledgehammer. Remembers what it changed, so the surface puts it back.
+-- Diving: the blowtorch instead of the sledgehammer (TORCH_FUEL if empty; air stations fill it again: a cutting torch
+-- needs oxygen). Remembers what it changed, so the surface puts it back.
 function swapTools(d, p, diving)
 	if diving then
 		if IsToolEnabled("sledge", p) then
@@ -99,7 +102,7 @@ function swapTools(d, p, diving)
 		end
 		if not IsToolEnabled("blowtorch", p) then
 			SetToolEnabled("blowtorch", true, p)
-			if GetToolAmmo("blowtorch", p) <= 0 then SetToolAmmo("blowtorch", 30, p) end
+			if GetToolAmmo("blowtorch", p) <= 0 then SetToolAmmo("blowtorch", TORCH_FUEL, p) end
 			d.gaveTorch = true
 		end
 		if d.hadSledge and GetPlayerTool(p) == "sledge" then SetPlayerTool("blowtorch", p) end
@@ -264,12 +267,15 @@ function gearLabel(seconds)
 	return "Diver gear, " .. math.floor(seconds + 0.5) .. " s"
 end
 
-function giveGear(p, d, seconds)
+-- (hold: put it in the hands too - a pickup; the gear everyone starts with just goes into the wheel)
+function giveGear(p, d, seconds, hold)
 	d.gearLen = seconds
-	local held = GetPlayerTool(p)
-	if held ~= GEAR_TOOL then d.toolBefore = held end
 	SetToolEnabled(GEAR_TOOL, true, p)
-	SetPlayerTool(GEAR_TOOL, p)
+	if hold ~= false then
+		local held = GetPlayerTool(p)
+		if held ~= GEAR_TOOL then d.toolBefore = held end
+		SetPlayerTool(GEAR_TOOL, p)
+	end
 end
 
 function takeGear(p, d)
@@ -309,7 +315,7 @@ function pickupInView(p)
 	return 0, nil, 0
 end
 
--- the diver gear a player looks at: its body and length (0, 0 if none)
+-- the diver gear a player looks at: its body and its tank's air time, s (0, 0 if none)
 function gearInView(p)
 	local b, tag, seconds = pickupInView(p)
 	if tag ~= "divergear" or seconds <= 0 then return 0, 0 end
@@ -340,8 +346,18 @@ function tickGear(dt)
 			if HasKey("dive.give.gear." .. p) then                       -- another mod hands out (or takes) diver gear
 				local seconds = GetFloat("dive.give.gear." .. p)
 				ClearKey("dive.give.gear." .. p)
+				d.gearRevoked = seconds <= 0                              -- (taken away by a script: not given back)
 				if seconds > 0 then giveGear(p, d, seconds) else takeGear(p, d) end
 			end
+			-- everyone has diver gear in the wheel (not worn) from the start and after every respawn: dive.gear.start
+			-- seconds, 0 = none (a map that wants it found sets 0 and places pickups)
+			local alive = GetPlayerHealth(p) > 0
+			if alive and not d.gearLen and not d.gearRevoked and (not d.gearStarted or d.wasDead) then
+				local start = setting("dive.gear.start", GEAR_START)
+				if start > 0 then giveGear(p, d, start, false) end
+			end
+			if alive then d.gearStarted = true end
+			d.wasDead = not alive
 			if d.gearLen and GetPlayerTool(p) == GEAR_TOOL and GetPlayerHealth(p) > 0 then
 				if pressed("usetool", p) then
 					d.worn = not d.worn
@@ -363,6 +379,9 @@ function tickGear(dt)
 				local fb, fkind, fval = pickupInView(p)                  -- an air station (airfill=<seconds> spent after)
 				if fkind == "airfill" and not airReady[fb] then
 					d.air = 1
+					if IsToolEnabled("blowtorch", p) and GetToolAmmo("blowtorch", p) < TORCH_FUEL then
+						SetToolAmmo("blowtorch", TORCH_FUEL, p)                -- (and the cutting torch's oxygen)
+					end
 					airReady[fb] = GetTime() + math.max(1, fval)
 					SetTag(fb, "spent")
 					local lo, hi = GetBodyBounds(fb)
@@ -386,6 +405,7 @@ end
 function Dive.clientInit()
 	gearBodies = {}                                    -- player -> {tank, l, r}: the bodies of the gear they wear
 	gearPivots = {}                                    -- body -> {off = its model's middle off its origin}: gearPart
+	gearAnimators = {}                                 -- player -> the game's ToolAnimator for the gear in the hands
 	frames = {}
 	for f = 0, CAUSTIC_FRAMES - 1 do
 		local fr = {}
@@ -687,6 +707,19 @@ end
 
 function Dive.clientTick(dt)
 	local now = GetTime()
+	-- the Diver gear in the hands: posed by the game's toolanimation.lua from its prefab (carried at the side, hanging
+	-- down: barely following the view's pitch)
+	for _, p in ipairs(GetAllPlayers()) do
+		if GetPlayerTool(p) == GEAR_TOOL then
+			local a = gearAnimators[p]
+			if not a then
+				a = ToolAnimator()
+				a.armPitchScale, a.toolPitchScale = 0.25, 0
+				gearAnimators[p] = a
+			end
+			tickToolAnimator(a, dt, nil, p)
+		end
+	end
 	local camT = GetCameraTransform()
 	local cam = camT.pos
 	camTop = cam[2] + 200

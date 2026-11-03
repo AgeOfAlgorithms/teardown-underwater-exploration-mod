@@ -1,0 +1,25 @@
+<prefab version="1.6.0">
+	<!-- The Diver gear tool (dive.lua registers it), laid out like the game's data/prefab/tool/extinguisher.xml: carried
+	     at the right side by its valve, the tank hanging upright beside the leg (as a bare model the game held it in
+	     front of the eyes: through the face). Tool space origin = the right hand's grip on the valve; the tank
+	     (airtank.vox, 0.9 m of 0.05 m voxels) hangs below it, placed by its centre. -->
+	<group name="instance=MOD/prefab/divergear_tool.xml" pos="0 0 0" rot="0.0 0.0 0.0">
+		<group name="eye_space">
+			<location name="fp_action" tags="name=fp_action" pos="0.34 -0.62 -0.42" rot="0.0 0.0 0.0"/>
+			<location name="tp_action" tags="name=tp_action" pos="0.3 -0.78 -0.05" rot="0.0 0.0 0.0"/>
+			<location name="tp_action_crouch" tags="name=tp_action_crouch" pos="0.32 -0.52 -0.12" rot="0.0 0.0 0.0"/>
+			<location name="tp_run" tags="name=tp_run" pos="0.3 -0.78 -0.05" rot="8.0 0.0 0.0"/>
+			<location name="tp_jump" tags="name=tp_jump" pos="0.3 -0.72 -0.05" rot="0.0 0.0 0.0"/>
+			<location name="tp_crouch" tags="name=tp_crouch" pos="0.32 -0.52 -0.12" rot="0.0 0.0 0.0"/>
+		</group>
+		<group name="tool_space">
+			<body dynamic="false">
+				<vox file="MOD/vox/airtank.vox" scale="0.5" pos="0.0 -0.42 0.0"/>
+			</body>
+			<location name="tp_action_rh" tags="name=tp_action_rh ik_hand" pos="0.0 0.0 0.0" rot="0.0 90.0 0.0"/>
+			<location name="tp_run_rh" tags="name=tp_run_rh ik_hand" pos="0.0 0.0 0.0" rot="0.0 90.0 0.0"/>
+			<location name="tp_jump_rh" tags="name=tp_jump_rh ik_hand" pos="0.0 0.0 0.0" rot="0.0 90.0 0.0"/>
+			<location name="tp_crouch_rh" tags="name=tp_crouch_rh ik_hand" pos="0.0 0.0 0.0" rot="0.0 90.0 0.0"/>
+		</group>
+	</group>
+</prefab>
