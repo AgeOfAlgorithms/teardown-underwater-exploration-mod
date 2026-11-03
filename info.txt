@@ -1,5 +1,5 @@
 name = Underwater Exploration
 author = AgeOfAlgorithms and Claude
-description = Underwater play on any map with water. Crouch in water to dive and swim where you look, with an air tank (the blowtorch replaces the sledgehammer while you dive). Caustic light, darker and bluer with depth, bubbles, schools of fish, seaweed and corals on the sea floor, and every loose object floats, hangs or sinks by its material. Nothing changes on dry land. Other mods and maps can change the air, the fish, the plants and more: see API.md in the mod's folder.
+description = Underwater play on any map with water. Crouch in water to dive and swim where you look; your air lasts 45 seconds. Diver gear (an air tank and flippers: longer air, faster swimming, slower on land) and a harpoon gun from the spawn menu; the game's guns don't work under water. Caustic light, deeper is darker, bubbles, schools of fish, seaweed and corals, and every loose object floats, hangs or sinks by its material. Nothing changes on dry land. Other mods and maps can change the air, the fish, the plants and more: see API.md in the mod's folder.
 tags = Gameplay
 version = 2

@@ -11,7 +11,14 @@ with an air tank. Nothing changes on dry land.
 
 - **Crouch** in the water to dive. Under water you swim where you look; **jump** and **crouch** go straight up and
   down, and with no input you hang still.
-- An **air tank** lasts 60 seconds under water and refills at the surface. The HUD shows your air and depth.
+- Your **air** lasts 45 seconds under water and refills at the surface. The HUD shows your air and depth.
+- **Diver gear** (an air tank and flippers): pick it up (E; the spawn menu's Underwater > Diver gear lasts 3 minutes)
+  and it's in your tool wheel. Hold it and click to put it on or take it off. Worn, your air lasts that long and you
+  swim faster, but on land the flippers slow you down. It stays with you. Maps can turn any object into diver gear of
+  any length.
+- **Harpoon gun**: the gun that works under water (the game's guns don't: they leave your wheel while your head is
+  under). Pick it up (E; the spawn menu's Underwater > Harpoon gun); its spears stick in what they hit. Maps can add
+  spear racks and air stations.
 - While you dive, the sledgehammer is swapped for the **blowtorch** (you get it back at the surface).
 
 ## The world under water
@@ -36,7 +43,8 @@ only for the swimming, the air and the floating objects.
 
 Other mods and maps can change the water's visibility, the amount of fish, seaweed and corals, the darkness, the
 swim speed, the drowning time and more, with plain registry keys (`SetFloat("dive.fish", 3, true)`), or with tags on
-a map's `<water>`. They can also read who is diving and how much air they have left.
+a map's `<water>`, and turn any object into diver gear of their own length (`divergear=<seconds>`). They can also
+read who is diving and how much air they have left.
 **The full list: [API.md](API.md).**
 
 ## Install
@@ -50,7 +58,10 @@ mods.
 - `main.lua`: the one script; its parts are modules: `dive.lua` (swimming, air, blowtorch, caustics, bubbles, the
   look, the HUD), `buoyancy.lua` (the floating objects, on the host), `fish.lua` and `flora.lua` (each player's own
   fish and plants).
-- `images/`, `snd/`, `vox/`: the caustic light, bubbles, sounds, fish and plant models, all made for this mod.
+- `harpoon.lua`: the harpoon gun (its spears, the spear racks).
+- `prefab/divergear.xml`, `prefab/harpoongun.xml` and `spawn.txt`: the spawn menu's diver gear and harpoon gun; `vox/airtank*.vox`, `vox/flipper*.vox`: the
+  gear lying about, in the hands and worn.
+- `images/`, `snd/`, `vox/`: the caustic light, bubbles, sounds, fish, plant and gear models, all made for this mod.
 
 ## Credits
 

@@ -1,0 +1,7 @@
+<prefab version="1.6.0">
+	<group name="instance=MOD/prefab/harpoongun.xml" pos="0.0 0.0 0.0" rot="0.0 0.0 0.0">
+		<body tags="harpoon=6" pos="0.0 0.2 0.0" rot="0.0 0.0 0.0" dynamic="true">
+			<vox pos="0.0 0.0 0.0" rot="0.0 0.0 0.0" file="MOD/vox/harpoon_pickup.vox"/>
+		</body>
+	</group>
+</prefab>

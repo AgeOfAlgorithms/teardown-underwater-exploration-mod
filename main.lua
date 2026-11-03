@@ -1,17 +1,19 @@
 #version 2
--- Dive: underwater play on any map with water. Nothing happens on dry land; in water: scuba diving with an air tank
--- (dive.lua), every loose object with its own buoyancy (buoyancy.lua), schools of fish drawn by each player for
--- themselves (fish.lua), seaweed and corals on the floor, also each player's own (flora.lua), caustics, bubbles and
--- the underwater look (dive.lua, client).
--- One script, its parts as modules (each a table of callbacks). A map can ship this same script (the Dive Test
--- level does): if the global mod runs too, the copy that registered last runs and the other one stays idle.
+-- Dive: underwater play on any map with water. Nothing happens on dry land; in water: scuba diving with the air, the
+-- diver gear and the underwater look (dive.lua), the harpoon gun (harpoon.lua), every loose object with its own
+-- buoyancy (buoyancy.lua), schools of fish drawn by each player for themselves (fish.lua), seaweed and corals on the
+-- floor, also each player's own (flora.lua).
+-- One script, its parts as modules (each a table of callbacks). If another copy of this script is loaded too (an old
+-- map that still ships one), only one runs (claim).
 
 #include "dive.lua"
 #include "buoyancy.lua"
 #include "fish.lua"
 #include "flora.lua"
+#include "script/toolanimation.lua"
+#include "harpoon.lua"
 
-MODULES = {Dive, Buoyancy, Fish, Flora}
+MODULES = {Dive, Buoyancy, Fish, Flora, Harpoon}
 -- (test builds add their modules here)
 
 -- The API for other mods and maps (API.md): a setting is the registry key if any script has written it, else the
@@ -44,7 +46,9 @@ function call(name, ...)
 end
 
 -- Two copies (a map's and the global mod's) each write a token at init; the one whose token is still there on its
--- first frame runs.
+-- first frame runs. That decides the server side; a copy's client side runs only if its own server side won (its
+-- shared.diveOwner, which only the winner sets): the two sides each claiming for themselves could end up in different
+-- copies (one copy's swimming and air with the other's drawing, which then had no state to draw).
 function claim(key)
 	local token = tostring(math.random()) .. "/" .. tostring(GetTime())
 	SetString(key, token)
@@ -61,6 +65,7 @@ function server.tick(dt)
 		serverOn = GetString("dive.owner.server") == serverToken
 		serverToken = false
 		if serverOn then
+			shared.diveOwner = true
 			readWaterTags()
 			call("serverInit")
 		end
@@ -74,23 +79,23 @@ end
 
 function client.init()
 	clientOn = false
-	clientToken = claim("dive.owner.client")
 end
 
 function client.tick(dt)
-	if clientToken then
-		clientOn = GetString("dive.owner.client") == clientToken
-		clientToken = false
-		if clientOn then
-			readWaterTags()
-			call("clientInit")
-		end
+	if not clientOn and shared.diveOwner then
+		clientOn = true
+		readWaterTags()
+		call("clientInit")
 	end
 	if clientOn then call("clientTick", dt) end
 end
 
 function client.update(dt)
 	if clientOn then call("clientUpdate", dt) end
+end
+
+function client.render(dt)
+	if clientOn then call("clientRender", dt) end
 end
 
 function client.draw()

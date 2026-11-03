@@ -1,8 +1,13 @@
 -- Scuba diving for any water. At the surface the game's own swimming carries you; crouch to dive. Diving, you swim
 -- where you look (forward/back/strafe follow the camera, pitch included), jump/crouch go straight up/down, and with
 -- no input you hang still. The dive ends when your head comes out of the water.
--- An air tank lasts AIR_TIME seconds under water and refills at the surface. The engine drowns a player whose head
--- has been under for ~10 s (~0.2 health/s, seen in-game); while the tank has air that damage is undone.
+-- The air lasts AIR_TIME seconds under water and refills at the surface. The engine drowns a player whose head has
+-- been under for ~10 s (~0.2 health/s, seen in-game); while there is air that damage is undone.
+-- Diver gear (an air tank and flippers): any body or shape tagged divergear=<seconds> (the spawn menu's Diver gear is
+-- one) is picked up with E (our own prompt; with the tag remain, the body stays), which puts the Diver gear tool in the
+-- wheel for good. Holding it, LMB puts it on or takes it off (it stays on whatever tool is held); worn, a full tank
+-- lasts that many seconds and you swim faster, but on land the flippers slow you. Everyone sees it on the diver
+-- (clientRender, on the bone bodies).
 -- Diving, the sledgehammer is put away for the game's blowtorch (and given back at the surface).
 -- Client side: caustic light on whatever the sun reaches under water, bubbles (a diver's breath, streams from the
 -- floor, and a burst with a bubbling sound where a loud noise happens in the water: an explosion, a shot), and the
@@ -18,7 +23,22 @@ Dive = {}
 
 SWIM = 3.0          -- swim speed, m/s
 ACCEL = 3.0         -- how fast the swim speed follows the input (1/s): water has some inertia
-AIR_TIME = 60       -- seconds of air in a full tank
+AIR_TIME = 45       -- seconds of air in a full tank
+GEAR_REACH = 3.5    -- metres from the eye to diver gear you can take (a swimmer's eye is the upright capsule's: the
+                    -- swim pose draws the head ~1.6 m further on, verified in-game 2026-11-03)
+GEAR_TOOL = "divergear"
+GUNS = {"gun", "shotgun", "rifle", "rocket"}   -- the game's firearms: stowed under water (stowGuns)
+GEAR_LAND_SPEED = 0.6  -- worn, out of the water: walking speed (x the game's); jumps: halfway to it
+GEAR_SWIM_SPEED = 1.5  -- worn, in the water: swimming speed, diving and at the surface (x)
+FIN_AHEAD = 0.12    -- metres a flipper's centre lies past the toes, ...
+FIN_DOWN = 0.04     -- ... and below them (the shoe sits in its pocket)
+FIN_SLOPE = 0.35    -- how much of the foot's slope a flipper keeps
+GEAR_SPEEDS = {walkingSpeed = 7.0, jumpSpeed = 4.0}   -- the game's own on land (read in-game, 2026-11-03)
+-- the tank on the back, in the chest bone body's frame as the game poses it: x up the spine from the chest's base, y
+-- FORWARD (measured in-game 2026-11-03: the bind pose's axes put the tank through the face); the tank's centre level
+-- with the chest's base puts the valve at the neck
+BACK = Transform(Vec(0, -0.22, 0), QuatEuler(0, 0, -90))
+BACK_OUT = 0.22     -- metres the tank's centre lies behind the chest (clientRender)
 REFILL_TIME = 4     -- seconds to refill an empty tank at the surface
 
 CAUSTIC_FRAMES = 24
@@ -33,9 +53,17 @@ VISIBILITY = 5      -- metres, when the map doesn't say (the built-in maps' seas
 FISH_LAYER = 128    -- fish.lua puts its fish on this collision layer: the caustics' rays pass through them
 DARK_DEPTH = 8      -- metres: the light under water falls off as exp(-depth / DARK_DEPTH)
 DARK_MIN = 0.03     -- the darkest the picture gets (and so at most 33 x the flashlight)
+LAYER_STEP = 2      -- metres between the dark sheets under the surface (depthLayers), ...
+LAYER_DEPTH = 60    -- ... down to this depth, ...
+LAYER_SIZE = 160    -- ... each this many metres across, under the camera
+LAYER_OFFSET = 0.37 -- (off whole metres: a sheet level with a flat floor flickers)
 
 function held(name, p)
 	return InputDown(name, p) or GetBool("dive.test." .. name)
+end
+
+function pressed(name, p)
+	return InputPressed(name, p) or GetBool("dive.test." .. name)
 end
 
 function axis(plus, minus, p)
@@ -46,6 +74,20 @@ function Dive.serverInit()
 	divers = {}
 	publishAt = 0
 	seq = 0
+	pickupSound = LoadSound("tool_pickup.ogg")
+	wearSound = LoadSound("clickup.ogg")
+	hissSound = LoadSound("MOD/snd/breath1.ogg")
+	airReady = {}                                      -- air station body -> the time it is back in service
+	RegisterTool(GEAR_TOOL, "Diver gear", "MOD/vox/airtank_tool.vox")
+end
+
+-- seconds of air in this player's full tank: a script's dive.air.time.<player>, else the diver gear they wear, else
+-- dive.air.time
+function tankTime(p, d)
+	local own = GetFloat("dive.air.time." .. p)
+	if own > 0 then return own end
+	if d.worn and d.gearLen then return d.gearLen end
+	return setting("dive.air.time", AIR_TIME)
 end
 
 -- Diving: the blowtorch instead of the sledgehammer. Remembers what it changed, so the surface puts it back.
@@ -71,12 +113,36 @@ function swapTools(d, p, diving)
 	end
 end
 
+-- Guns don't fire under water: with the head under, the game's firearms leave the wheel (the ones the player had) and
+-- come back at the surface; dive.guns = true lets them be. (Bombs and pipebombs still work: under water a blast boils.)
+function stowGuns(d, p, stow)
+	if stow then
+		d.stowed = {}
+		local held = GetPlayerTool(p)
+		for _, t in ipairs(GUNS) do
+			if IsToolEnabled(t, p) then
+				d.stowed[#d.stowed + 1] = t
+				SetToolEnabled(t, false, p)
+			end
+		end
+		for _, t in ipairs(d.stowed) do
+			if held == t then                                      -- (something else in the hands)
+				SetPlayerTool(IsToolEnabled(HARPOON, p) and HARPOON or IsToolEnabled("blowtorch", p) and "blowtorch" or "none", p)
+			end
+		end
+	else
+		for _, t in ipairs(d.stowed or {}) do SetToolEnabled(t, true, p) end
+		d.stowed = nil
+	end
+end
+
 function Dive.serverUpdate(dt)
 	for _, p in ipairs(GetAllPlayers()) do
 		local d = divers[p]
 		if not d then
 			d = {diving = false, air = 1, v = Vec(0, 0, 0), drift = 0.8}
 			divers[p] = d
+			SetToolEnabled(GEAR_TOOL, false, p)                         -- (only from a pickup)
 		end
 		local was = d.diving
 		if HasKey("dive.give.air." .. p) then                        -- another mod refills (or empties) the tank
@@ -86,11 +152,13 @@ function Dive.serverUpdate(dt)
 		if GetPlayerHealth(p) <= 0 or GetPlayerVehicle(p) ~= 0 or GetBool("dive.disabled") then
 			d.diving = false
 			d.headIn = false
+			d.bodyIn = false
 		else
 			local feet = GetPlayerTransform(p).pos
 			local bodyIn = IsPointInWater(VecAdd(feet, Vec(0, 0.8, 0)))   -- the chest point the game's swim animation uses
 			local headIn = IsPointInWater(GetPlayerEyeTransform(p).pos)
 			d.headIn = headIn
+			d.bodyIn = bodyIn
 			if not bodyIn then
 				d.diving = false
 			elseif held("crouch", p) then
@@ -108,7 +176,8 @@ function Dive.serverUpdate(dt)
 				local n = VecLength(wish)
 				if n > 1 then wish = VecScale(wish, 1 / n) end
 				if not was then d.v = GetPlayerVelocity(p) end
-				d.v = VecLerp(d.v, VecScale(wish, setting("dive.swim.speed", SWIM)), math.min(1, dt * ACCEL))
+				local fins = d.worn and setting("dive.gear.swim.speed", GEAR_SWIM_SPEED) or 1
+				d.v = VecLerp(d.v, VecScale(wish, setting("dive.swim.speed", SWIM) * fins), math.min(1, dt * ACCEL))
 				-- The engine floats a submerged player up ~0.8 m/s on top of the velocity a script sets, and it moves the
 				-- position: GetPlayerVelocity doesn't show it (measured in-game). Learn that drift from how far the
 				-- player really moved last step and set that much less. Contacts (the floor, a crate) and teleports are
@@ -130,7 +199,7 @@ function Dive.serverUpdate(dt)
 			d.lastY = feet[2]
 			d.ownHurt = nil
 			if headIn then
-				d.air = math.max(0, d.air - dt / AIR_TIME)
+				d.air = math.max(0, d.air - dt / math.max(1, tankTime(p, d)))
 				-- out of air, with dive.drown.time set: dead that many seconds after the tank ran out (from full health);
 				-- the engine's own drowning is undone then (serverTick)
 				local drown = setting("dive.drown.time", 0)
@@ -147,19 +216,26 @@ function Dive.serverUpdate(dt)
 			swapTools(d, p, torch)
 			d.torch = torch
 		end
+		local stow = d.headIn and GetPlayerHealth(p) > 0 and not settingOn("dive.guns", false)
+		if stow ~= (d.stowed ~= nil) then stowGuns(d, p, stow) end
 		SetBool("dive.diving." .. p, d.diving)
 		SetFloat("dive.air." .. p, d.air)
+		SetFloat("dive.air.tank." .. p, tankTime(p, d))
+		SetFloat("dive.gear." .. p, d.gearLen or 0)
+		SetBool("dive.gear.worn." .. p, d.worn == true)
 	end
 	publishAt = publishAt - dt
 	if publishAt <= 0 then
 		publishAt = 0.1
 		seq = seq + 1
-		local air, diving = {}, {}
+		local air, diving, worn, gear = {}, {}, {}, {}
 		for p, d in pairs(divers) do
 			air[p] = d.air
 			diving[p] = d.diving
+			if d.worn then worn[p] = true end
+			gear[p] = d.gearLen
 		end
-		shared.dive = {seq = seq, air = air, diving = diving}
+		shared.dive = {seq = seq, air = air, diving = diving, worn = worn, gear = gear}
 	end
 end
 
@@ -180,11 +256,136 @@ function Dive.serverTick(dt)
 			if after < keep - 0.0001 then SetPlayerHealth(keep, victim) end
 		end
 	end
+	tickGear(dt)
+end
+
+function gearLabel(seconds)
+	if seconds >= 60 and seconds % 60 == 0 then return "Diver gear, " .. seconds / 60 .. " min" end
+	return "Diver gear, " .. math.floor(seconds + 0.5) .. " s"
+end
+
+function giveGear(p, d, seconds)
+	d.gearLen = seconds
+	local held = GetPlayerTool(p)
+	if held ~= GEAR_TOOL then d.toolBefore = held end
+	SetToolEnabled(GEAR_TOOL, true, p)
+	SetPlayerTool(GEAR_TOOL, p)
+end
+
+function takeGear(p, d)
+	d.gearLen, d.worn = nil, false
+	SetToolEnabled(GEAR_TOOL, false, p)
+	if GetPlayerTool(p) == GEAR_TOOL then                         -- back to what they held before (if they still can)
+		local back = d.toolBefore
+		SetPlayerTool(back and back ~= "" and back ~= "none" and IsToolEnabled(back, p) and back or "none", p)
+	end
+end
+
+-- What a player looks at to pick up (PICKUPS: diver gear, a harpoon gun, a spear rack, an air station): a body or shape tagged with one
+-- (or one of its body's shapes), on the camera's ray (over the shoulder in third person) within GEAR_REACH of the eye.
+-- Returns the body, the tag and its value (0, nil, 0 if none). Our own aim, prompt and E: the engine offers no
+-- interact to a swimming player (verified in-game, 2026-11-03: GetPlayerInteractBody stayed 0 with the crosshair on
+-- it). Server (the pickup) and client (the prompt) alike.
+PICKUPS = {"divergear", "harpoon", "spearrack", "airfill"}
+
+function pickupInView(p)
+	local cam = GetPlayerCameraTransform(p)
+	local dir = TransformToParentVec(cam, Vec(0, 0, -1))
+	local eye = GetPlayerEyeTransform(p).pos
+	QueryRejectPlayer(p)
+	QueryRequire("physical")                                   -- (through the plants and fish: they don't collide)
+	-- (as far as the eye plus the reach: a third-person camera can be metres behind)
+	local hit, dist, _, shape = QueryRaycast(cam.pos, dir, VecLength(VecSub(eye, cam.pos)) + GEAR_REACH + 0.5)
+	if not hit then return 0, nil, 0 end
+	local b = GetShapeBody(shape)
+	if b == 0 then return 0, nil, 0 end
+	if VecLength(VecSub(VecAdd(cam.pos, VecScale(dir, dist)), eye)) > GEAR_REACH then return 0, nil, 0 end
+	local shapes = GetBodyShapes(b)
+	for _, tag in ipairs(PICKUPS) do
+		local h = HasTag(b, tag) and b or HasTag(shape, tag) and shape
+		for _, sh in ipairs(h and {} or shapes) do h = h or HasTag(sh, tag) and sh end
+		if h then return b, tag, tonumber(GetTagValue(h, tag)) or 0 end
+	end
+	return 0, nil, 0
+end
+
+-- the diver gear a player looks at: its body and length (0, 0 if none)
+function gearInView(p)
+	local b, tag, seconds = pickupInView(p)
+	if tag ~= "divergear" or seconds <= 0 then return 0, 0 end
+	return b, seconds
+end
+
+-- worn, a speed the game sets each frame (walking: also its swimming, which the game makes ~0.4 of it in water; jumps)
+-- times k, from the game's own on land (GEAR_SPEEDS). A value set applies for one frame, so every frame. (The game's
+-- own can't be read back reliably: GetPlayerParam gives 0 or an old value of ours after a set, and the speed after the
+-- water's factor when wading or swimming - seen in-game, 2026-11-03)
+function scaleParam(p, name, k)
+	SetPlayerParam(name, GEAR_SPEEDS[name] * k, p)
+end
+
+-- The diver gear: taking it (E on it) puts the Diver gear tool in the wheel, for good (no dropping, not even on death:
+-- few mods would expect a player to drop equipment); in the hands, the tool's use (LMB) puts it on or takes it off.
+-- Worn (the tank on the back, flippers on the feet): the tank's air, faster swimming, slower on land.
+function tickGear(dt)
+	for b, at in pairs(airReady) do                              -- air stations back in service
+		if GetTime() >= at then
+			airReady[b] = nil
+			if IsHandleValid(b) then RemoveTag(b, "spent") end
+		end
+	end
+	for _, p in ipairs(GetAllPlayers()) do
+		local d = divers[p]
+		if d then
+			if HasKey("dive.give.gear." .. p) then                       -- another mod hands out (or takes) diver gear
+				local seconds = GetFloat("dive.give.gear." .. p)
+				ClearKey("dive.give.gear." .. p)
+				if seconds > 0 then giveGear(p, d, seconds) else takeGear(p, d) end
+			end
+			if d.gearLen and GetPlayerTool(p) == GEAR_TOOL and GetPlayerHealth(p) > 0 then
+				if pressed("usetool", p) then
+					d.worn = not d.worn
+					PlaySound(wearSound, GetPlayerTransform(p).pos, 0.8)
+				end
+			end
+			-- the tool gone (a game mode takes every tool on death, or another mod took it): the gear too
+			if d.gearLen and not IsToolEnabled(GEAR_TOOL, p) then d.gearLen, d.worn = nil, false end
+			if d.worn and GetPlayerHealth(p) > 0 then
+				if d.bodyIn then
+					scaleParam(p, "walkingSpeed", setting("dive.gear.swim.speed", GEAR_SWIM_SPEED))
+				else
+					local k = setting("dive.gear.land.speed", GEAR_LAND_SPEED)
+					scaleParam(p, "walkingSpeed", k)
+					scaleParam(p, "jumpSpeed", 0.5 + 0.5 * k)
+				end
+			end
+			if pressed("interact", p) and GetPlayerHealth(p) > 0 then
+				local fb, fkind, fval = pickupInView(p)                  -- an air station (airfill=<seconds> spent after)
+				if fkind == "airfill" and not airReady[fb] then
+					d.air = 1
+					airReady[fb] = GetTime() + math.max(1, fval)
+					SetTag(fb, "spent")
+					local lo, hi = GetBodyBounds(fb)
+					PlaySound(hissSound, VecLerp(lo, hi, 0.5), 0.9, false, 0.7)
+				end
+				local b, seconds = gearInView(p)
+				if b ~= 0 then
+					local remain = HasTag(b, "remain")
+					for _, sh in ipairs(GetBodyShapes(b)) do remain = remain or HasTag(sh, "remain") end
+					giveGear(p, d, seconds)
+					PlaySound(pickupSound, GetBodyTransform(b).pos, 1)
+					if not remain then Delete(b) end
+				end
+			end
+		end
+	end
 end
 
 -- ---------------------------------------------------------------- client
 
 function Dive.clientInit()
+	gearBodies = {}                                    -- player -> {tank, l, r}: the bodies of the gear they wear
+	gearPivots = {}                                    -- body -> {off = its model's middle off its origin}: gearPart
 	frames = {}
 	for f = 0, CAUSTIC_FRAMES - 1 do
 		local fr = {}
@@ -216,6 +417,7 @@ function Dive.clientInit()
 	SetString("dive.sun", string.format("%.2f,%.2f,%.2f", sun[1], sun[2], sun[3]))
 	others = {}
 	bubbleSprite = LoadSprite("MOD/images/bubble.png")
+	plainSprite = LoadSprite("MOD/images/plain.png")
 	snd = {}
 	for _, name in ipairs({"boom", "burst", "breath"}) do
 		snd[name] = {}
@@ -431,7 +633,9 @@ function underwaterLook()
 	if camUnder then
 		local strength = math.max(0, setting("dive.look", 1))
 		local k = (1 - math.exp(-camDepth / 18)) * strength
-		local dark = math.max(DARK_MIN, math.exp(-camDepth * strength / DARK_DEPTH))
+		-- (the brightness filter: dive.filter, off by default since the depth sheets - the user's choice, 2026-11-03)
+		local filter = math.max(0, setting("dive.filter", 0))
+		local dark = math.max(DARK_MIN, math.exp(-camDepth * strength * filter / DARK_DEPTH))
 		local cb = look.colorbalance
 		SetPostProcessingProperty("brightness", look.brightness * dark)
 		SetPostProcessingProperty("saturation", look.saturation * (1 - 0.15 * k))
@@ -453,6 +657,34 @@ function underwaterLook()
 	end
 end
 
+-- Deeper is darker for what you look DOWN at, too: dark see-through sheets lie flat under the surface every LAYER_STEP,
+-- each as dark as that much water (exp(-step / DARK_DEPTH), as the picture's own darkening by the camera's depth),
+-- drawn only below the camera (the one just below thinner by how far it is: no pop when you pass it). So from the
+-- surface, or looking down from mid-water, the floor is as dark as its own depth; looking ahead they are edge-on, and
+-- a flashlight's beam doesn't cross them. (The real light can't be shaped: a shape tagged invisible doesn't block it,
+-- verified 2026-11-03.) The surface: the camera's depth, or a ray down to the water from above it.
+function depthLayers(cam, under, depth)
+	local strength = math.max(0, setting("dive.look", 1))
+	if strength <= 0 then return end
+	local surf
+	if under then
+		surf = cam[2] + depth
+	else
+		local hit, d = QueryRaycastWater(cam, Vec(0, -1, 0), 60)
+		if hit then surf = cam[2] - d end
+	end
+	if not surf then return end
+	local flat = QuatEuler(-90, 0, 0)
+	for i = 1, math.floor(LAYER_DEPTH / LAYER_STEP) do
+		local y = surf - i * LAYER_STEP + LAYER_OFFSET
+		local thick = math.min(LAYER_STEP, cam[2] - y)
+		if thick > 0 then
+			local a = 1 - math.exp(-thick * strength / DARK_DEPTH)
+			DrawSprite(plainSprite, Transform(Vec(cam[1], y, cam[3]), flat), LAYER_SIZE, LAYER_SIZE, 0, 0.015, 0.03, a, true, false)
+		end
+	end
+end
+
 function Dive.clientTick(dt)
 	local now = GetTime()
 	local camT = GetCameraTransform()
@@ -465,6 +697,7 @@ function Dive.clientTick(dt)
 	noises(now)
 	updateBubbles(dt, cam, camT.rot, now, vis)
 	underwaterLook()
+	depthLayers(cam, camUnder, camDepth)
 	if math.floor(now) ~= lastSweep then             -- forget cells far behind
 		lastSweep = math.floor(now)
 		local cx, cz = math.floor(cam[1]), math.floor(cam[3])
@@ -474,9 +707,119 @@ function Dive.clientTick(dt)
 	end
 end
 
+-- the diver gear worn: the tank on the back, a flipper on each foot. Each machine draws its own, on the character as it
+-- is drawn: the bone bodies, right before the frame (GetBoneWorldTransform gives the upright pose, not the swim pose's:
+-- the tank went through a swimmer's head, 2026-11-03). A flipper lies along foot -> toes, past the toes
+-- t is where the part's middle goes. An odd-width model is drawn half a voxel off its body's origin (the tank sat 2.5 cm
+-- to one side, measured in-game 2026-11-03): that offset is read off the part as drawn (its shape's middle, in the
+-- body's frame, from the frame before) and taken back
+function gearPart(p, key, file, t)
+	local g = gearBodies[p]
+	local b = g[key]
+	if not b or not IsHandleValid(b) then
+		b = 0
+		for _, e in ipairs(Spawn("<body><vox file='MOD/vox/" .. file .. ".vox' scale='0.5' collide='false'/></body>", t, true)) do
+			if GetEntityType(e) == "body" then b = e end
+		end
+		g[key] = b
+	end
+	if b == 0 then return end
+	local pv = gearPivots[b]                                    -- (per body: g holds only the part bodies)
+	if not pv then
+		pv = {from = GetTime() + 0.1}
+		gearPivots[b] = pv
+	end
+	if not pv.off and GetTime() > pv.from then                -- (not in its spawn frame: its shape reads wrong then)
+		local sh = GetBodyShapes(b)[1]
+		if sh then
+			local lo, hi = GetShapeBounds(sh)
+			local off = TransformToLocalPoint(GetBodyTransform(b), VecLerp(lo, hi, 0.5))
+			if VecLength(off) < 0.1 then pv.off = off end
+		end
+	end
+	local off = pv.off
+	SetBodyTransform(b, off and TransformToParentTransform(t, Transform(VecScale(off, -1))) or t)
+end
+
+function Dive.clientRender()
+	local worn = shared.dive and shared.dive.worn or {}
+	for p, g in pairs(gearBodies) do
+		if not worn[p] then
+			for _, b in pairs(g) do
+				if IsHandleValid(b) then Delete(b) end
+				gearPivots[b] = nil
+			end
+			gearBodies[p] = nil
+		end
+	end
+	for p in pairs(worn) do
+		local anim = GetPlayerAnimator(p)
+		local chest = anim ~= 0 and GetBoneBody(anim, "chest") or 0
+		if chest ~= 0 then
+			gearBodies[p] = gearBodies[p] or {}
+			-- (the tank's frame from the body as drawn: up the spine, sideways along the shoulders, back square to both,
+			-- centred between the shoulders. In the chest bone's own frame it hung to one side when swimming: the swim
+			-- pose rolls the chest about the spine, and its "back" axis went partly sideways)
+			local ct = GetBodyTransform(chest)
+			local up = TransformToParentVec(ct, Vec(1, 0, 0))
+			local sl, sr = GetBoneBody(anim, "shoulder_l"), GetBoneBody(anim, "shoulder_r")
+			local t = TransformToParentTransform(ct, BACK)
+			if sl ~= 0 and sr ~= 0 then
+				local a, b = GetBodyTransform(sl).pos, GetBodyTransform(sr).pos
+				local across = VecSub(b, a)
+				across = VecNormalize(VecSub(across, VecScale(up, VecDot(across, up))))
+				local back = VecNormalize(VecCross(across, up))
+				if VecDot(back, TransformToParentVec(ct, Vec(0, -1, 0))) < 0 then back = VecScale(back, -1) end
+				local mid = VecLerp(a, b, 0.5)
+				local base = VecAdd(ct.pos, VecScale(across, VecDot(VecSub(mid, ct.pos), across)))
+				-- the model's long axis (its local y) up the spine: local x across, z back (or x the other way round)
+				local x = VecDot(VecCross(back, across), up) > 0 and across or VecScale(across, -1)
+				t = Transform(VecAdd(base, VecScale(back, BACK_OUT)), QuatAlignXZ(x, back))
+			end
+			gearPart(p, "tank", "airtank", t)
+			for _, side in ipairs({"l", "r"}) do
+				local foot, toes = GetBoneBody(anim, "foot_" .. side), GetBoneBody(anim, "toes_" .. side)
+				if foot ~= 0 and toes ~= 0 then
+					-- (foot -> toes with most of its slope taken out: standing, the toes point ~30 degrees down and the tips
+					-- dug into the floor; swimming, the feet stretch back about level anyway)
+					local a, b = GetBodyTransform(foot).pos, GetBodyTransform(toes).pos
+					local d = VecSub(b, a)
+					local along = VecNormalize(Vec(d[1], d[2] * FIN_SLOPE, d[3]))
+					local at = VecAdd(VecAdd(b, VecScale(along, FIN_AHEAD)), Vec(0, -FIN_DOWN, 0))
+					-- (the model's tip, high vox y, comes out on the game's +z: look the other way - verified in-game)
+					gearPart(p, side, "flipper", Transform(at, QuatLookAt(at, VecSub(at, along))))
+				end
+			end
+		end
+	end
+end
+
 function Dive.clientDraw()
 	local me = GetLocalPlayer()
 	local d = shared.dive
+	local pb, kind, value = pickupInView(me)                  -- looking at something to pick up
+	local prompt = kind == "divergear" and value > 0 and "E: pick up " .. gearLabel(value)
+		or kind == "harpoon" and "E: pick up Harpoon gun"
+		or kind == "spearrack" and (HasTag(pb, "spent") and "Spear rack: empty for now" or "E: take spears")
+		or kind == "airfill" and (HasTag(pb, "spent") and "Air station: empty for now" or "E: fresh air")
+	if prompt then
+		UiPush()
+			UiTranslate(UiCenter(), UiMiddle() + 60)
+			UiAlign("center middle")
+			UiFont("bold.ttf", 24)
+			UiColor(1, 1, 1, 0.9)
+			UiText(prompt)
+		UiPop()
+	end
+	if GetPlayerTool(me) == GEAR_TOOL and d and d.gear and d.gear[me] then   -- the gear in the hands: what the keys do
+		UiPush()
+			UiTranslate(UiCenter(), UiHeight() - 170)
+			UiAlign("center middle")
+			UiFont("bold.ttf", 22)
+			UiColor(1, 1, 1, 0.85)
+			UiText((d and d.worn and d.worn[me]) and "LMB: take the diver gear off" or "LMB: put the diver gear on")
+		UiPop()
+	end
 	local air = d and d.air and d.air[me] or 1
 	local diving = d and d.diving and d.diving[me]
 	if not (camUnder or diving or air < 0.999) then return end

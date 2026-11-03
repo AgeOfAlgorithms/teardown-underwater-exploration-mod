@@ -1,0 +1,9 @@
+<prefab version="1.6.0">
+	<group name="instance=MOD/prefab/divergear.xml" pos="0.0 0.0 0.0" rot="0.0 0.0 0.0">
+		<body tags="divergear=180" pos="0.0 0.6 0.0" rot="0.0 0.0 0.0" dynamic="true">
+			<vox pos="0.0 0.0 0.0" rot="0.0 0.0 0.0" file="MOD/vox/airtank_pickup.vox"/>
+			<vox pos="0.4 -0.5 0.0" rot="0.0 0.0 0.0" file="MOD/vox/flipper_pickup.vox"/>
+			<vox pos="0.75 -0.5 0.0" rot="0.0 0.0 0.0" file="MOD/vox/flipper_pickup.vox"/>
+		</body>
+	</group>
+</prefab>
