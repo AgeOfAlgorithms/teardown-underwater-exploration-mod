@@ -16,6 +16,7 @@
 -- One that gets to the surface is put there and woken whoever is near (above water you see far): the engine's
 -- floating settles it. One that gets to the floor or a ceiling is put there, asleep.
 -- A body that has stopped (on the floor, under a ceiling, a knocked one that hangs still again) is put to sleep.
+-- A body a player holds (RMB grab) is left alone: no speed, no sleep, no parking, no move, no delete.
 --
 -- Off: dive.buoyancy.disabled (API.md; the old name buoyancy.disabled too). Logged for tests: buoyancy.log (bool) logs each body's density once.
 
@@ -96,7 +97,7 @@ function scan()
 			-- (a sinker that can't be parked, on the floor already or over a bottomless sea, is left asleep instead)
 			if s.lastY and s.target and s.target ~= 0 and not s.debris and IsHandleValid(b) and IsBodyActive(b) then
 				if not park(b, s, TransformToParentPoint(GetBodyTransform(b), GetBodyCenterOfMass(b)), GetTime())
-					and s.target < 0 then
+					and s.target < 0 and not heldBodies()[b] then
 					SetBodyActive(b, false)
 				end
 			end
@@ -130,6 +131,7 @@ end
 -- Park a body (true), unless it is already where its path ends (a floater at the surface, a sinker on the floor) or
 -- its path has no end.
 function park(b, s, c, now)
+	if heldBodies()[b] then return false end
 	local stopY, kind = pathEnd(b, c, s.target)
 	if not stopY or math.abs(stopY - c[2]) < 0.3 then return false end
 	parked[b] = {s = s, t0 = now, y0 = c[2], x = c[1], z = c[3], v = s.target, stopY = stopY, kind = kind}
@@ -139,6 +141,23 @@ function park(b, s, c, now)
 	bodies[b] = nil
 	SetBodyActive(b, false)
 	return true
+end
+
+-- The bodies the players hold (RMB grab) right now, as a set.
+function heldBodies()
+	local held = {}
+	for _, p in ipairs(GetAllPlayers()) do
+		local b = GetPlayerGrabBody(p)
+		if b and b ~= 0 then held[b] = true end
+	end
+	return held
+end
+
+-- Before a script deletes a body: anyone holding it lets go first (as the game's tornado.lua does before it acts).
+function letGo(b)
+	for _, p in ipairs(GetAllPlayers()) do
+		if GetPlayerGrabBody(p) == b then ReleasePlayerGrab(p) end
+	end
 end
 
 function nobodyNear(heads, x, y, z, far)
@@ -235,7 +254,7 @@ function sweepDebris(now)
 			end
 			if near then
 				debris[b] = now
-			elseif now - last > CLEANUP then
+			elseif now - last > CLEANUP and not heldBodies()[b] then
 				Delete(b)
 				debris[b] = nil
 				debrisCount = debrisCount - 1
@@ -257,10 +276,15 @@ function Buoyancy.serverUpdate(dt)
 		checkParked(now, heads, far)
 	end
 	sweepDebris(now)
+	local held = heldBodies()
 	for _, b in ipairs(list) do
 		local s = bodies[b]
 		local active = s and IsHandleValid(b) and IsBodyActive(b)
-		if parked[b] then
+		if held[b] then
+			-- held by a player (RMB): the grab moves it, not the water; never put to sleep, moved or parked while held (a
+			-- player's report, 2026-11-06: grabbing things under water sometimes crashed the game)
+			if s then s.still, s.cmd, s.lastY, s.woken = 0, nil, nil, true end
+		elseif parked[b] then
 			-- parked: a formula now (checkParked), not to be woken like a map's sleeping body
 		elseif s and s.woken and not active then
 			s.age = 0                                     -- asleep (hanging, settled, frozen debris): nothing to do

@@ -393,7 +393,10 @@ function tickGear(dt)
 					for _, sh in ipairs(GetBodyShapes(b)) do remain = remain or HasTag(sh, "remain") end
 					giveGear(p, d, seconds)
 					PlaySound(pickupSound, GetBodyTransform(b).pos, 1)
-					if not remain then Delete(b) end
+					if not remain then
+						letGo(b)
+						Delete(b)
+					end
 				end
 			end
 		end

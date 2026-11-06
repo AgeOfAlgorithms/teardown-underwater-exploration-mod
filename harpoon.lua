@@ -90,7 +90,10 @@ function harpoonPickups(now)
 				PlaySound(spearSound, GetBodyTransform(b).pos, 1)
 				local remain = HasTag(b, "remain")
 				for _, sh in ipairs(GetBodyShapes(b)) do remain = remain or HasTag(sh, "remain") end
-				if not remain then Delete(b) end
+				if not remain then
+					letGo(b)
+					Delete(b)
+				end
 			elseif kind == "spearrack" and gunners[p] and not rackReady[b] and GetToolAmmo(HARPOON, p) < SPEARS then
 				SetToolAmmo(HARPOON, SPEARS, p)
 				rackReady[b] = now + RACK_REFILL
