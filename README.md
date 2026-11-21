@@ -41,10 +41,13 @@ only for the swimming, the air and the floating objects.
 
 ## For mod and map makers
 
-Other mods and maps can change the water's visibility, the amount of fish, seaweed and corals, the darkness, the
-swim speed, the drowning time and more, with plain registry keys (`SetFloat("dive.fish", 3, true)`), or with tags on
-a map's `<water>`, and turn any object into diver gear with their own air time (`divergear=<seconds>`). They can also
-read who is diving and how much air they have left.
+Other mods and maps can change the water's visibility, the darkness, the swim speed, the drowning time and more,
+with plain registry keys (`SetFloat("dive.visibility", 8, true)`), or with tags on a map's `<water>`, and turn any
+object into diver gear with their own air time (`divergear=<seconds>`). They can also read who is diving and how much
+air they have left. How many fish, how much kelp and how many corals is the host's choice in the Mod Manager only.
+
+With the McPuppet Inventory System running, the oxygen tank (back slot), the harpoon gun and the flippers (feet slot)
+become its items (`dive_inv.lua`).
 **The full list: [API.md](API.md).**
 
 ## Install

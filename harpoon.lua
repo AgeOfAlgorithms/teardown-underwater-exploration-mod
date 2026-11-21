@@ -55,7 +55,29 @@ function Harpoon.serverInit()
 	spearSound = LoadSound("tool_pickup.ogg")
 end
 
+-- With the McPuppet Inventory System running and the harpoon declared one of its items (a pack's
+-- inventory.tools.harpoon), the Inventory owns the tool wheel and the spears' count: a gift goes through its give key
+-- (one gun only while the player has none), a rack through its refill key, and Dive never enables the tool or raises
+-- its ammo itself (a write fight: the Inventory writes its own count back, and the traffic floods the clients).
+-- Firing still lowers the game's count (SetToolAmmo - 1): the Inventory reads that as shots. (the user, 2026-11-21)
+function harpoonInv()
+	return GetBool("inventory.present") and HasKey("inventory.tools.harpoon")
+end
+
+local function invAppend(key, words)
+	local cur = GetString(key)
+	SetString(key, cur == "" and words or (cur .. " " .. words))
+end
+
 function harpoonGive(p, spears)
+	if harpoonInv() then
+		if GetInt("inventory.count." .. p .. "." .. HARPOON) <= 0 then
+			invAppend("inventory.give." .. p, HARPOON .. ":1:" .. math.floor(spears))
+		else
+			SetInt("inventory.load." .. p .. "." .. HARPOON, GetInt("inventory.load." .. p .. "." .. HARPOON) + math.floor(spears))
+		end
+		return
+	end
 	local held = GetPlayerTool(p)
 	gunners[p] = gunners[p] or {readyAt = 0}
 	SetToolEnabled(HARPOON, true, p)
@@ -64,6 +86,10 @@ function harpoonGive(p, spears)
 end
 
 function harpoonTake(p)
+	if harpoonInv() then
+		invAppend("inventory.take." .. p, HARPOON)
+		return
+	end
 	gunners[p] = nil
 	SetToolEnabled(HARPOON, false, p)
 end
@@ -83,6 +109,7 @@ function harpoonPickups(now)
 			if n > 0 then harpoonGive(p, n) else harpoonTake(p) end
 		end
 		if gunners[p] and not IsToolEnabled(HARPOON, p) then gunners[p] = nil end   -- (a game mode took it)
+		if not gunners[p] and harpoonInv() and IsToolEnabled(HARPOON, p) then gunners[p] = {readyAt = 0} end   -- (the Inventory's)
 		if pressed("interact", p) and GetPlayerHealth(p) > 0 then
 			local b, kind, value = pickupInView(p)
 			if kind == "harpoon" then
@@ -95,7 +122,11 @@ function harpoonPickups(now)
 					Delete(b)
 				end
 			elseif kind == "spearrack" and gunners[p] and not rackReady[b] and GetToolAmmo(HARPOON, p) < SPEARS then
-				SetToolAmmo(HARPOON, SPEARS, p)
+				if harpoonInv() then
+					SetInt("inventory.load." .. p .. "." .. HARPOON, GetInt("inventory.load." .. p .. "." .. HARPOON) + SPEARS)
+				else
+					SetToolAmmo(HARPOON, SPEARS, p)
+				end
 				rackReady[b] = now + RACK_REFILL
 				SetTag(b, "spent")
 				local lo, hi = GetBodyBounds(b)

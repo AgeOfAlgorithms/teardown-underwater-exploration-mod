@@ -5,7 +5,7 @@
 -- Each fish is a small static body (5 cm voxels) spawned on this client only, not physical (collide='false': no
 -- tool or shot hits it) and on collision layer FISH_LAYER, mask 0; only the fish within sight of the camera are moved.
 --
--- How many: dive.fish (API.md: times SCHOOLS roaming schools; 0 = none). Set here: dive.fish.mode ("vox", or "none"
+-- How many: the host's Mod Manager option only (hostOption("fish"): times SCHOOLS roaming schools; Off = none). Set here: dive.fish.mode ("vox", or "none"
 -- when this client can't spawn).
 
 Fish = {}
@@ -22,6 +22,9 @@ FLEE_RANGE = 4.0    -- a player's head this close to the school makes it scatter
 SPREAD = 1.1        -- the school's radius, metres
 SIGHT = 30          -- fish farther from the camera than this aren't moved
 FISH_LAYER = 128    -- (dive.lua's caustic rays skip this layer)
+-- the host's choice in the Mod Manager (options.lua: Off, Few, Normal, More, Lots, Swarm = 0 .. 8 x), sent to every
+-- machine (main.lua publishOptions; the user, 2026-11-21: a higher upper limit, set in the menu)
+function fishOption() return hostOption("fish") end
 
 function Fish.clientInit()
 	fishSchools = {}
@@ -108,7 +111,7 @@ end
 function manageSchools(cam, now)
 	if fishCanSpawn == false or now < fishLookAt then return end
 	fishLookAt = now + 0.2
-	local want = math.max(0, math.floor(SCHOOLS * setting("dive.fish", 1) + 0.5))
+	local want = math.max(0, math.floor(SCHOOLS * fishOption() + 0.5))   -- (the host's option only: maps can't set it)
 	local roaming = 0
 	for _, s in ipairs(fishSchools) do
 		if not s.fixed then

@@ -23,13 +23,13 @@ Dive = {}
 
 SWIM = 3.0          -- swim speed, m/s
 ACCEL = 3.0         -- how fast the swim speed follows the input (1/s): water has some inertia
-AIR_TIME = 45       -- seconds of air in a full tank
+AIR_TIME = 60       -- seconds of air in a full tank (the user, 2026-11-08: 1 minute, was 45)
 GEAR_REACH = 3.5    -- metres from the eye to diver gear you can take (a swimmer's eye is the upright capsule's: the
                     -- swim pose draws the head ~1.6 m further on, verified in-game 2026-11-03)
 GEAR_TOOL = "divergear"
 GUNS = {"gun", "shotgun", "rifle", "rocket"}
 TORCH_FUEL = 30     -- the blowtorch's fuel when diving lends it empty, and what an air station fills it to   -- the game's firearms: stowed under water (stowGuns)
-GEAR_START = 180    -- seconds of the diver gear everyone has in the wheel (dive.gear.start; 0 = only from pickups)
+GEAR_START = 210    -- seconds of the diver gear everyone has in the wheel (dive.gear.start; 0 = only from pickups)
 GEAR_LAND_SPEED = 0.6  -- worn, out of the water: walking speed (x the game's); jumps: halfway to it
 GEAR_SWIM_SPEED = 1.5  -- worn, in the water: swimming speed, diving and at the surface (x)
 FIN_AHEAD = 0.12    -- metres a flipper's centre lies past the toes, ...
@@ -88,6 +88,7 @@ end
 function tankTime(p, d)
 	local own = GetFloat("dive.air.time." .. p)
 	if own > 0 then return own end
+	if d.invTank then return invTankTime() end                  -- (the Inventory's tank on the back: dive_inv.lua)
 	if d.worn and d.gearLen then return d.gearLen end
 	return setting("dive.air.time", AIR_TIME)
 end
@@ -95,6 +96,7 @@ end
 -- Diving: the blowtorch instead of the sledgehammer (TORCH_FUEL if empty; air stations fill it again: a cutting torch
 -- needs oxygen). Remembers what it changed, so the surface puts it back.
 function swapTools(d, p, diving)
+	if invOn() and not d.hadSledge and not d.gaveTorch then return end   -- (the Inventory owns the wheel)
 	if diving then
 		if IsToolEnabled("sledge", p) then
 			SetToolEnabled("sledge", false, p)
@@ -119,6 +121,11 @@ end
 -- Guns don't fire under water: with the head under, the game's firearms leave the wheel (the ones the player had) and
 -- come back at the surface; dive.guns = true lets them be. (Bombs and pipebombs still work: under water a blast boils.)
 function stowGuns(d, p, stow)
+	if invOn() and not (d.stowed and #d.stowed > 0) then            -- (the Inventory: its stow key, dive_inv.lua)
+		invStow(p, stow)
+		d.stowed = stow and {} or nil
+		return
+	end
 	if stow then
 		d.stowed = {}
 		local held = GetPlayerTool(p)
@@ -145,7 +152,7 @@ function Dive.serverUpdate(dt)
 		if not d then
 			d = {diving = false, air = 1, v = Vec(0, 0, 0), drift = 0.8}
 			divers[p] = d
-			SetToolEnabled(GEAR_TOOL, false, p)                         -- (only from a pickup)
+			if not invOn() then SetToolEnabled(GEAR_TOOL, false, p) end  -- (only from a pickup)
 		end
 		local was = d.diving
 		if HasKey("dive.give.air." .. p) then                        -- another mod refills (or empties) the tank
@@ -180,6 +187,7 @@ function Dive.serverUpdate(dt)
 				if n > 1 then wish = VecScale(wish, 1 / n) end
 				if not was then d.v = GetPlayerVelocity(p) end
 				local fins = d.worn and setting("dive.gear.swim.speed", GEAR_SWIM_SPEED) or 1
+				if invOn() then fins = invSwim(p) end                  -- (the Inventory's swim stat: its flippers, dive_inv.lua)
 				d.v = VecLerp(d.v, VecScale(wish, setting("dive.swim.speed", SWIM) * fins), math.min(1, dt * ACCEL))
 				-- The engine floats a submerged player up ~0.8 m/s on top of the velocity a script sets, and it moves the
 				-- position: GetPlayerVelocity doesn't show it (measured in-game). Learn that drift from how far the
@@ -263,7 +271,7 @@ function Dive.serverTick(dt)
 end
 
 function gearLabel(seconds)
-	if seconds >= 60 and seconds % 60 == 0 then return "Diver gear, " .. seconds / 60 .. " min" end
+	if seconds >= 60 and seconds % 30 == 0 then return "Diver gear, " .. seconds / 60 .. " min" end   -- (3.5 min)
 	return "Diver gear, " .. math.floor(seconds + 0.5) .. " s"
 end
 
@@ -343,6 +351,9 @@ function tickGear(dt)
 	for _, p in ipairs(GetAllPlayers()) do
 		local d = divers[p]
 		if d then
+			if invOn() then
+				invGearTick(p, d)                                    -- (the Inventory's tank: dive_inv.lua)
+			else
 			if HasKey("dive.give.gear." .. p) then                       -- another mod hands out (or takes) diver gear
 				local seconds = GetFloat("dive.give.gear." .. p)
 				ClearKey("dive.give.gear." .. p)
@@ -375,11 +386,12 @@ function tickGear(dt)
 					scaleParam(p, "jumpSpeed", 0.5 + 0.5 * k)
 				end
 			end
+			end
 			if pressed("interact", p) and GetPlayerHealth(p) > 0 then
 				local fb, fkind, fval = pickupInView(p)                  -- an air station (airfill=<seconds> spent after)
 				if fkind == "airfill" and not airReady[fb] then
 					d.air = 1
-					if IsToolEnabled("blowtorch", p) and GetToolAmmo("blowtorch", p) < TORCH_FUEL then
+					if not invOn() and IsToolEnabled("blowtorch", p) and GetToolAmmo("blowtorch", p) < TORCH_FUEL then
 						SetToolAmmo("blowtorch", TORCH_FUEL, p)                -- (and the cutting torch's oxygen)
 					end
 					airReady[fb] = GetTime() + math.max(1, fval)
@@ -391,7 +403,7 @@ function tickGear(dt)
 				if b ~= 0 then
 					local remain = HasTag(b, "remain")
 					for _, sh in ipairs(GetBodyShapes(b)) do remain = remain or HasTag(sh, "remain") end
-					giveGear(p, d, seconds)
+					if invOn() then invAppendKey("inventory.give." .. p, INV_TANK) else giveGear(p, d, seconds) end
 					PlaySound(pickupSound, GetBodyTransform(b).pos, 1)
 					if not remain then
 						letGo(b)
@@ -824,6 +836,17 @@ function Dive.clientRender()
 					local at = VecAdd(VecAdd(b, VecScale(along, FIN_AHEAD)), Vec(0, -FIN_DOWN, 0))
 					-- (the model's tip, high vox y, comes out on the game's +z: look the other way - verified in-game)
 					gearPart(p, side, "flipper", Transform(at, QuatLookAt(at, VecSub(at, along))))
+				end
+			end
+			-- (none of it drawn for its wearer in first person: the game hides your own character then, and the gear hung in
+			-- the air - swimming, the tank filled the view, a player's report, 2026-11-07. Each machine spawns its own gear
+			-- bodies, so the tag hides it from this camera only; others still see it)
+			local hide = p == GetLocalPlayer() and not GetBool("game.thirdperson")
+			for _, b in pairs(gearBodies[p]) do
+				if b ~= 0 and IsHandleValid(b) then
+					for _, sh in ipairs(GetBodyShapes(b)) do
+						if hide then SetTag(sh, "invisible") else RemoveTag(sh, "invisible") end
+					end
 				end
 			end
 		end

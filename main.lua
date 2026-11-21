@@ -12,14 +12,15 @@
 #include "flora.lua"
 #include "script/toolanimation.lua"
 #include "harpoon.lua"
+#include "inventory_api.lua"     -- (the McPuppet Inventory System's API copy: the tank as its garment; unchanged copy)
+#include "dive_inv.lua"
 
-MODULES = {Dive, Buoyancy, Fish, Flora, Harpoon}
+MODULES = {Dive, Buoyancy, Fish, Flora, Harpoon, DiveInv}
 -- (test builds add their modules here)
 
 -- The API for other mods and maps (API.md): a setting is the registry key if any script has written it, else the
 -- map's tag on its water (WATER_TAGS), else the default.
-WATER_TAGS = {["dive.visibility"] = "visibility", ["dive.fish"] = "fish", ["dive.seaweed"] = "seaweed",
-	["dive.corals"] = "corals"}
+WATER_TAGS = {["dive.visibility"] = "visibility"}   -- (fish / seaweed / corals: only the host's options since 2026-11-21)
 
 function readWaterTags()
 	waterTags = {}
@@ -70,7 +71,36 @@ function server.tick(dt)
 			call("serverInit")
 		end
 	end
-	if serverOn then call("serverTick", dt) end
+	if serverOn then
+		call("serverTick", dt)
+		publishOptions(dt)
+	end
+end
+
+-- The host's choices in the Mod Manager (options.lua: fish, seaweed, corals) -> synced amounts every machine's fish
+-- and plants use (dive.opt.fish / .seaweed / .corals). The ONLY control of those amounts: maps and other mods can't set
+-- them (the user, 2026-11-21: "remove this API and leave it to the mod menu only"). Looked at once a second, written only when changed
+-- (a value rewritten every tick would flood the clients).
+OPTION_STEPS = {fish = {0, 0.5, 1, 2, 4, 8}, seaweed = {0, 0.5, 1, 2, 3}, corals = {0, 0.5, 1, 2, 3}}
+local optT, optSent = 0, {}
+function publishOptions(dt)
+	optT = optT - dt
+	if optT > 0 then return end
+	optT = 1
+	for key, steps in pairs(OPTION_STEPS) do
+		local i = GetInt("savegame.mod." .. key)
+		if i < 1 or i > #steps then i = 3 end
+		if optSent[key] ~= steps[i] then
+			optSent[key] = steps[i]
+			SetFloat("dive.opt." .. key, steps[i], true)
+		end
+	end
+end
+
+-- a host option's multiplier on this machine (1 until the host's arrives)
+function hostOption(key)
+	if HasKey("dive.opt." .. key) then return GetFloat("dive.opt." .. key) end
+	return 1
 end
 
 function server.update(dt)

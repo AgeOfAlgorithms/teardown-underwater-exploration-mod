@@ -7,7 +7,7 @@
 -- Each plant is a small static body (5 cm voxels, MOD/vox/flora_*.vox by tools/make_flora.py), not physical
 -- (collide='false') and on FISH_LAYER, so nothing collides with it and the caustics' rays pass it.
 --
--- How many: dive.seaweed (kelp and seagrass) and dive.corals (API.md: times the normal amount; 0 = none); a change
+-- How many: the host's Mod Manager options only (kelp and seagrass, corals: times the normal amount; Off = none); a change
 -- regrows the floor around the camera. Set here: dive.flora.count (plants alive).
 
 Flora = {}
@@ -120,7 +120,7 @@ end
 function fillCell(c, weed, coral)
 	c.plants = {}
 	for k = 1, FLORA_TRIES do
-		if floraCount >= FLORA_MAX then break end
+		if floraCount >= (floraMax or FLORA_MAX) then break end   -- (floraMax: grown with the host's options)
 		local p = floraAt(c.ix, c.iz, k, weed, coral)
 		if p and spawnPlant(p) then
 			c.plants[#c.plants + 1] = p
@@ -165,7 +165,10 @@ end
 function Flora.clientTick(dt)
 	local now = GetTime()
 	local cam = GetCameraTransform().pos
-	local weed, coral = math.max(0, setting("dive.seaweed", 1)), math.max(0, setting("dive.corals", 1))
+	-- (times the host's options in the Mod Manager: main.lua publishOptions)
+	local weed = math.max(0, hostOption("seaweed"))                -- (the host's options only: maps can't set them)
+	local coral = math.max(0, hostOption("corals"))
+	floraMax = math.floor(FLORA_MAX * math.max(1, hostOption("seaweed"), hostOption("corals")))
 	local wanted = weed .. "/" .. coral
 	if wanted ~= floraWanted then                    -- new amounts: grow the floor again
 		floraWanted = wanted
