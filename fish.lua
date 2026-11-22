@@ -188,7 +188,21 @@ function Fish.clientTick(dt)
 					-- the model's head is +x: turn it onto -z, then point -z along the swim direction; the tail swishes
 					SetBodyTransform(f.body, Transform(pos, QuatRotateQuat(frame, QuatEuler(0, 90 + wig * 12, 0))))
 				end
+				s.away = false
+			else
+				fishHideAway(s)
 			end
+		else
+			fishHideAway(s)
 		end
 	end
+end
+
+-- A school beyond SIGHT isn't drawn: its fish out of sight once (they stood frozen where they were last drawn - the
+-- school swam on or was moved elsewhere - and zipped back when it came near: the user, 2026-11-22, "they zip past me
+-- sometimes, then freeze"); drawn at the school again when it is within SIGHT.
+function fishHideAway(s)
+	if s.away then return end
+	for _, f in ipairs(s.fish) do SetBodyTransform(f.body, Transform(Vec(0, -1000, 0))) end
+	s.away = true
 end
