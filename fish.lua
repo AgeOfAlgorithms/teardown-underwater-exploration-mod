@@ -12,8 +12,9 @@ Fish = {}
 
 SCHOOLS = 6         -- schools around the camera
 SCHOOL_SIZE = {10, 28}
-NEAR, FAR = 12, 35  -- a new school appears this far from the camera ...
-LEAVE = 55          -- ... and is moved on when the camera is this far away
+NEAR, FAR = 12, 28  -- a new school appears this far from the camera (inside SIGHT: drawn at once) ...
+LEAVE = 36          -- ... and is moved on when the camera is this far away (was 55, FAR 35: schools 30-55 m off
+                    -- were never drawn nor moved on - frozen fish, then none at all: the user, 2026-11-22)
 MIN_DEPTH = 3
 ROAM = 18           -- metres a school may wander from its home
 SPEED = 1.1         -- cruising speed, m/s
